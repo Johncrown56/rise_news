@@ -6,11 +6,13 @@ import { CreatePostDto } from '../dtos';
 import asyncHandler from "express-async-handler";
 
 export const createPost = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { title, content, userId } = req.body;
+  const { body, params } = req;
+  const { title, content } = req.body;
+  const { id } = params;
   const postDto = new CreatePostDto();
   postDto.title = title;
   postDto.content = content;
-  postDto.userId = userId;
+  postDto.userId = Number(id);
 
   const errors = await validate(postDto);
   if (errors.length > 0) {
@@ -23,11 +25,11 @@ export const createPost = asyncHandler(async (req: Request, res: Response, next:
     const newPost = postRepository.create({
       title,
       content,
-      user: { id: userId },
+      user: { id: Number(id) },
     });
 
     await postRepository.save(newPost);
-     res.status(201).json({success: true, message: 'Post created successfully', post: newPost });
+     res.status(201).json({success: true, message: 'Post created successfully', data: newPost });
   } catch (error: any) {
      next(error);
   }
@@ -48,8 +50,18 @@ export const getUserPosts = asyncHandler(async (req: Request, res: Response, nex
         res.status(404).json({ success: false, message: 'No posts found for this user' });
         return;
       }
+
+      // remove unneccessary property from each post object
+      const data = await Promise.all(posts.map(async (post) => {
+        post.user.password = undefined;
+        post.user.createdAt = undefined;
+        post.user.updatedAt = undefined;
+        post.user.deletedAt = undefined;
+        post.deletedAt = undefined;
+        return post;
+      }))
   
-      res.status(200).json({success: true, message: "User fetched successfully", data: posts});
+      res.status(200).json({success: true, message: "User fetched successfully", data });
     } catch (error) {
       next(error);
     }

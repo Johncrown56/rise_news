@@ -2,14 +2,24 @@ import { NextFunction, Request, Response } from "express";
 import asyncHandler from "express-async-handler";
 import { Post, User, Comment } from '../entity';
 import { CreateCommentDto } from "../dtos";
-import { validate } from "class-validator";
+import { isNotEmpty, validate } from "class-validator";
 import AppDataSource from "../config/db";
 
 
 export const addCommentToPost = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { body, params } = req;
     const { postId } = params;
-    const { content, userId } = body;
+    const { content } = body;
+
+    // get the logged in user
+    const user: User = req["user"];
+    const { id } = user;
+
+    // Validate the user
+    if (!isNotEmpty(user)) {
+        res.status(401);
+        throw new Error("User not found");
+    }
 
     const commentDto = new CreateCommentDto();
     commentDto.postId = Number(postId);
@@ -31,7 +41,7 @@ export const addCommentToPost = asyncHandler(async (req: Request, res: Response,
         }
 
         const userRepository = AppDataSource.getRepository(User);
-        const user = await userRepository.findOne({where: userId});
+        const user = await userRepository.findOne({where: { id } });
 
         if (!user) {
             res.status(404).json({success: false, message: 'User not found' });
@@ -41,8 +51,17 @@ export const addCommentToPost = asyncHandler(async (req: Request, res: Response,
         const commentRepository = AppDataSource.getRepository(Comment);
         const comment = commentRepository.create({ content, post, user });
 
-        await commentRepository.save(comment);
-        res.status(201).json({ success: true, message: "Comment added successfully", data: comment });
+        
+        const data = await commentRepository.save(comment);
+        // remove unneccessary property from each comment object
+        data.user.password = undefined;
+        data.user.createdAt = undefined;
+        data.user.updatedAt = undefined;
+        data.user.deletedAt = undefined;
+        data.post.deletedAt = undefined;
+        data.deletedAt = undefined;
+
+        res.status(201).json({ success: true, message: "Comment added successfully", data });
     } catch (error) {
         console.log(error);
         next(error);

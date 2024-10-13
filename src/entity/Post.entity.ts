@@ -1,8 +1,8 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, ManyToOne, OneToMany } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, ManyToOne, OneToMany, JoinColumn } from 'typeorm';
 import { User } from './User.entity';
 import { Comment } from './Comment.entity';
 
-@Entity()
+@Entity("posts")
 export class Post {
   @PrimaryGeneratedColumn()
   id: number;
@@ -14,6 +14,7 @@ export class Post {
   content: string;
 
   @ManyToOne(() => User, (user) => user.posts)
+  @JoinColumn({ name: 'userId' })
   user: User;
 
   @OneToMany(() => Comment, (comment) => comment.post)

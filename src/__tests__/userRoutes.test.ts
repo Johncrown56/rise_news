@@ -36,6 +36,7 @@ describe('User API', () => {
   it('should return 400 for invalid user data', async () => {
     const invalidUser = {
       firstName: '', // Missing first name
+      lastName: '', // Missing last name
       email: 'john@testing.com',
       password: 'Password@123',
     };
@@ -46,5 +47,7 @@ describe('User API', () => {
       .expect(400);
 
     expect(response.body).toHaveProperty('errors');
+    expect(response.body).toHaveProperty('success');
+    expect(response.body).toHaveProperty('message');
   });
 });

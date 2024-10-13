@@ -7,6 +7,6 @@ export class CreateCommentDto {
   @IsNotEmpty({ message: 'Post ID is required' })
   postId: number;
 
-  @IsNotEmpty({ message: 'User ID is required' })
-  userId: number;
+  // @IsNotEmpty({ message: 'User ID is required' })
+  // userId: number;
 }

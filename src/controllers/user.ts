@@ -59,8 +59,6 @@ export const login = asyncHandler(async (req: Request, res: Response, next: Next
     userDto.email = email;
     userDto.password = password;
 
-    console.log({userDto})
-
     // Validate the userDto
     const errors = await validate(userDto);
     if (errors.length > 0) {
@@ -89,7 +87,7 @@ export const login = asyncHandler(async (req: Request, res: Response, next: Next
         const token = jwt.sign(encryptedData, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRATION });
 
         const profile = (({ password, updatedAt, createdAt, deletedAt, ...rest }) => rest)(user);
-        res.status(200).json({success: true, message: "", data: {...profile, token} });
+        res.status(200).json({success: true, message: "Login Successful", data: {...profile, token} });
     } catch (error: any) {
         next(error);
     }
@@ -200,38 +198,43 @@ export const topContributors = asyncHandler(async (req: Request, res: Response, 
 export const getTopUsersWithLatestComments = asyncHandler( async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userRepository = AppDataSource.getRepository(User);
-        const commentRepository = AppDataSource.getRepository(Comment);
-
-        // Fetch the top 3 users with the most posts
+        const commentRepository = AppDataSource.getRepository(Comment); 
+        
+        // Step 1: Fetch top 3 users with the most posts
         const topUsers = await userRepository
-            .createQueryBuilder('user')
-            .leftJoinAndSelect('user.posts', 'post')
-            .addSelect('COUNT(post.id)', 'post_count')
-            .groupBy('user.id')
-            .orderBy('post_count', 'DESC')
-            .limit(3)
-            .getMany();
-
-        // Fetch the latest comment for each of the top users
+          .createQueryBuilder('user')
+          .leftJoinAndSelect('user.posts', 'post')
+          .groupBy('user.id')
+          .select(['user.id', 'user.firstName', 'user.lastName', 'COUNT(post.id) AS post_count'])
+          .orderBy('post_count', 'DESC')
+          .limit(3)
+          .getRawMany();
+        
+        // Step 2: Fetch the latest comment for each of the top users
         const topUsersWithComments = await Promise.all(
-            topUsers.map(async (user) => {
-                const latestComment = await commentRepository
-                    .createQueryBuilder('comment')
-                    .leftJoinAndSelect('comment.post', 'post')
-                    .where('comment.userId = :userId', { userId: user.id })
-                    .orderBy('comment.createdAt', 'DESC')
-                    .getOne() as Comment;
+          topUsers.map(async (user) => {
+            const latestComment = await commentRepository
+              .createQueryBuilder('comment')
+              .leftJoinAndSelect('comment.post', 'post')
+              .where('post.userId = :userId', { userId: user.user_id })
+              .orderBy('comment.createdAt', 'DESC')
+              .getOne();
 
-                return {
-                    userId: user.id,
-                    firstName: user.firstName,
-                    lastName: user.lastName,
-                    postTitle: latestComment?.post.title || null,
-                    commentContent: latestComment?.content || null,
-                    commentCreatedAt: latestComment?.createdAt || null,
-                };
-            })
-        );
+              console.log({user})
+              console.log({latestComment})
+        
+            return {
+              userId: user.user_id,
+              firstName: user.user_firstName,
+              lastName: user.user_lastName,
+              post_count: user.post_count,
+              postTitle: latestComment?.post?.title || null,
+              postComment: latestComment?.post?.content || null,
+              commentContent: latestComment?.content || null,
+              commentCreatedAt: latestComment?.createdAt || null,
+            };
+          })
+        );        
 
         res.status(200).json({ success: true, message: "Top Users retrieved successfully", data: topUsersWithComments });
     } catch (error: any) {
@@ -298,8 +301,6 @@ export const getTopUsersWithLatestComments2 = asyncHandler(async (req: Request, 
         next(error)
     }
 });
-
-
 
 export const getTopUsersWithLatestComments3 = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
