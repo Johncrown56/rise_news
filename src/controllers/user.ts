@@ -8,7 +8,7 @@ import jwt from 'jsonwebtoken';
 import { CreateUserDto, LoginUserDto } from "../dtos";
 import { validate } from "class-validator";
 import AppDataSource from "../config/db";
-
+import { redisClient } from "../config/redis";
 
 export const createUser = async (req: Request, res: Response, next: NextFunction) => {
     const { body } = req;
@@ -51,7 +51,6 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
     }
 }
 
-
 export const login = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { body } = req;
     const { email, password } = body;
@@ -85,7 +84,6 @@ export const login = asyncHandler(async (req: Request, res: Response, next: Next
          throw new Error('Invalid credentials');
     }
     try {
-
         // Generate a token
         const encryptedData = { id: user.id, firstName: user.firstName, email: user.email };
         const token = jwt.sign(encryptedData, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRATION });
@@ -96,7 +94,6 @@ export const login = asyncHandler(async (req: Request, res: Response, next: Next
         next(error);
     }
 });
-
 
 export const findUsers = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const userRepository = AppDataSource.getRepository(User);
@@ -134,6 +131,39 @@ export const findUser = asyncHandler(async (req: Request, res: Response, next: N
         console.log(error);
         next(error)
     }
+});
+
+// Fetch user by ID with Redis cache
+export const getUserById = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    try {
+    const { id } = req.params;
+  
+    // Check if user data is already cached in Redis  
+    const cachedUser = await redisClient.get(`user:${id}`);
+  
+  if (cachedUser) {
+    // If user data is found in Redis, return it
+    res.status(200).json({ success: true, data: JSON.parse(cachedUser) });
+    return;
+  }
+  
+  // If not found in Redis, fetch from database
+  const userRepository = AppDataSource.getRepository(User);
+  const user = await userRepository.findOne({ where: { id: parseInt(id) } });
+  
+  if (!user) {
+    res.status(404).json({ success: false, message: 'User not found' });
+    return;
+  }
+  
+  // Cache the user data in Redis for future requests for 1 hour
+  redisClient.setEx(`user:${id}`, 3600, JSON.stringify(user));
+  
+  res.status(200).json({ success: true, data: user });
+  return;
+} catch (error: any) {
+    next(error);
+}
 });
 
 // Implement an endpoint to fetch the top 3 users with the most posts and their latest comment
