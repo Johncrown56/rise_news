@@ -8,4 +8,5 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
     error: process.env.NODE_ENV === 'development' ? err : {}, // Only send error details in development
     reason: process.env.NODE_ENV === 'development' ? err.stack : null
   });
+  return;
 };

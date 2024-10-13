@@ -4,7 +4,7 @@ import { createUser, findUser, findUsers, getTopUsersWithLatestComments, login} 
 const router = Router();
 
 router.route("/users").post(createUser).get(findUsers);
-router.get("/users/login", login);
+router.post("/users/login", login);
 router.get("/users/top-users", getTopUsersWithLatestComments);
 router.get("/users/:id", findUser);
 

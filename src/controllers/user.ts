@@ -5,7 +5,7 @@ import { NextFunction, Request, Response } from "express";
 import bcrypt from 'bcrypt';
 import { Comment } from "../entity/Comment.entity";
 import jwt from 'jsonwebtoken';
-import { CreateUserDto } from "../dtos";
+import { CreateUserDto, LoginUserDto } from "../dtos";
 import { validate } from "class-validator";
 import AppDataSource from "../config/db";
 
@@ -23,44 +23,53 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
     // Validate the userDto
     const errors = await validate(userDto);
     if (errors.length > 0) {
-        res.status(400).json({ errors: errors.map((err) => Object.values(err?.constraints)) });
+        res.status(400).json({ success: false, message: "Missing required fields", errors: errors.map((err) => Object.values(err?.constraints)) });
+      return;
     }
 
     try {
         const userRepository = AppDataSource.getRepository(User);
+        // Check if a user with the email address exist
         const existingUser = await userRepository.findOne({ where: { email } });
-
         if (existingUser) {
-            res.status(400).json({ message: 'User already exists' });
+            res.status(400).json({ success: false, message: 'User already exists' });
+            return;
         }
 
+        // Hash the password before saving
         const hashedPassword = await bcrypt.hash(password, 10);
+        // Creates a new entity instance for User and copy all entity properties into it
         const user = userRepository.create({ email, password: hashedPassword, firstName, lastName });
-
+        // save the user data into the DB
         const data = await userRepository.save(user);
-
-        type SafeUserData = Omit<
-        User,
-        | 'password'
-        | 'id'
-        | 'updatedAt'
-        | 'deletedAt'
-        | 'createdAt'
-      >;
-
-      const profile: SafeUserData = { ...data };
+      // destructure customer and remove unneccessary data and pass the rest
+      const profile = (({ id, password, updatedAt, createdAt, deletedAt, ...rest }) => rest)(data);
         res.status(201).json({ success: true, message: "User created successfully", data: profile });
     } catch (error) {
-        //res.status(500).json({ message: 'Internal Server Error' });
-        next(error); // Pass the error to the error handler middleware
+        // Pass the error to the error handler middleware
+        next(error); 
     }
 }
 
 
-export const login = asyncHandler(async (req: Request, res: Response) => {
-    const { email, password } = req.body;
+export const login = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    const { body } = req;
+    const { email, password } = body;
+
+    const userDto = new LoginUserDto();
+    userDto.email = email;
+    userDto.password = password;
+
+    console.log({userDto})
+
+    // Validate the userDto
+    const errors = await validate(userDto);
+    if (errors.length > 0) {
+      res.status(400).json({ success: false, errors: errors.map((err) => Object.values(err?.constraints)) });
+      return;
+    }
     
-    const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+    const JWT_SECRET = process.env.JWT_SECRET;
     const userRepository = AppDataSource.getRepository(User);
     const user = await userRepository.findOne({ where: { email } });
 
@@ -70,7 +79,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     }
 
     // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password); // Assume the password is hashed
+    const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
          res.status(400);
          throw new Error('Invalid credentials');
@@ -79,34 +88,21 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
         // Generate a token
         const encryptedData = { id: user.id, firstName: user.firstName, email: user.email };
-        const token = jwt.sign(encryptedData, JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign(encryptedData, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRATION });
 
-        type SafeUserData = Omit<
-        User,
-        | 'password'
-        | 'id'
-        | 'updatedAt'
-        | 'deletedAt'
-        | 'createdAt'
-      >;
-
-      const profile: SafeUserData = {
-        ...user,
-      };
-
+        const profile = (({ password, updatedAt, createdAt, deletedAt, ...rest }) => rest)(user);
         res.status(200).json({success: true, message: "", data: {...profile, token} });
     } catch (error: any) {
-        res.status(500);
-        throw new Error('Internal Server error');
+        next(error);
     }
 });
 
 
-export const findUsers = asyncHandler(async (req: Request, res: Response) => {
+export const findUsers = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const userRepository = AppDataSource.getRepository(User);
     try {
         const users = await userRepository.find();
-        // remove password and createdAt from each user
+        // remove unneccessary property from each user object
         const data = await Promise.all(users.map(async (user) => {
             user.password = undefined;
             user.createdAt = undefined;
@@ -115,14 +111,13 @@ export const findUsers = asyncHandler(async (req: Request, res: Response) => {
             return user;
         }))
         res.status(200).json({ success: true, message: "Users retrieved successfully", data });
-    } catch (error) {
+    } catch (error: any) {
         console.log(error);
-        res.status(500);
-        throw new Error("Internal Server Error");
+        next(error)
     }
 })
 
-export const findUser = asyncHandler(async (req: Request, res: Response) => {
+export const findUser = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { id } = req.params;
 
     try {
@@ -135,16 +130,14 @@ export const findUser = asyncHandler(async (req: Request, res: Response) => {
         }
 
         res.status(200).json({ success: true, message: "Users fetched successfully", data: user });
-    } catch (error) {
-        //res.status(500).json({ message: 'Internal Server Error' });
+    } catch (error: any) {
         console.log(error);
-        res.status(500);
-        throw new Error("Internal Server Error");
+        next(error)
     }
 });
 
 // Implement an endpoint to fetch the top 3 users with the most posts and their latest comment
-export const topContributors = asyncHandler(async (req: Request, res: Response) => {
+export const topContributors = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const userRepository = AppDataSource.getRepository(User);
 
     try {
@@ -166,15 +159,15 @@ export const topContributors = asyncHandler(async (req: Request, res: Response) 
                 .getOne();
             user["latestComment"] = latestComment;
         }
-        res.status(200).json({ message: "Top Users retrieved successfully", data: users });
+        res.status(200).json({success: true, message: "Top Users retrieved successfully", data: users });
     } catch (error) {
         console.log(error);
-        res.status(500);
-        throw new Error("Internal Server Error");
+        next(error)
     }
 });
 
-export const getTopUsersWithLatestComments = asyncHandler( async (req: Request, res: Response) => {
+// Implement an endpoint to fetch the top 3 users with the most posts and their latest comment
+export const getTopUsersWithLatestComments = asyncHandler( async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userRepository = AppDataSource.getRepository(User);
         const commentRepository = AppDataSource.getRepository(Comment);
@@ -212,11 +205,11 @@ export const getTopUsersWithLatestComments = asyncHandler( async (req: Request, 
 
         res.status(200).json({ success: true, message: "Top Users retrieved successfully", data: topUsersWithComments });
     } catch (error: any) {
-        res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message });
+        next(error);
     }
 });
 
-export const getTopUsersWithLatestCommentsWithQuery = async (req: Request, res: Response) => {
+export const getTopUsersWithLatestCommentsWithQuery = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const entityManager = getManager();
         const result = await entityManager.query(`
@@ -242,11 +235,11 @@ export const getTopUsersWithLatestCommentsWithQuery = async (req: Request, res: 
 
         res.status(200).json({ success: true, message: "Top Users", data: result });
     } catch (error) {
-        res.status(500).json({ success: false, message: 'Internal Server Error' });
+        next(error)
     }
 };
 
-export const getTopUsersWithLatestComments2 = async (req: Request, res: Response) => {
+export const getTopUsersWithLatestComments2 = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
         const entityManager = getManager();
         const result = await entityManager.query(`
@@ -270,15 +263,15 @@ export const getTopUsersWithLatestComments2 = async (req: Request, res: Response
       ORDER BY top_users.post_count DESC;
     `);
 
-        return res.status(200).json({ success: true, message: "", data: result});
+        res.status(200).json({ success: true, message: "Data retrieved successfully", data: result});
     } catch (error: any) {
-        return res.status(500).json({ message: 'Internal Server Error', error: error.message });
+        next(error)
     }
-};
+});
 
 
 
-export const getTopUsersWithLatestComments3 = asyncHandler(async (req: Request, res: Response) => {
+export const getTopUsersWithLatestComments3 = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
         const entityManager = getManager();
         const query = `SELECT users.id, users.name, posts.title, comments.content
@@ -294,9 +287,9 @@ export const getTopUsersWithLatestComments3 = asyncHandler(async (req: Request, 
                 ORDER BY COUNT(posts.id) DESC
                 LIMIT 3;`
         const result = await entityManager.query(query);
-        res.status(200).json({ message: "Top Users fetched successfully", data: result });
+        res.status(200).json({ success: true, message: "Top Users fetched successfully", data: result });
     } catch (error: any) {
-        res.status(500).json({ message: 'Internal Server Error' });
+        next(error)
     }
 })
 
